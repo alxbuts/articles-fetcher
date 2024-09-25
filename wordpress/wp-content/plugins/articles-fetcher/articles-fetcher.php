@@ -52,10 +52,10 @@ class ArticlesApiFetcher {
         // Register settings for the plugin
         add_action('admin_init', function() {
             register_setting('articles_api_fetcher_options', 'articles_api_url');
-            add_settings_section('articles_api_fetcher_section', 'API Settings', null, 'custom-api-fetcher');
+            add_settings_section('articles_api_fetcher_section', 'API Settings', null, 'articles-api-fetcher');
             add_settings_field('articles_api_url', 'API URL', function() {
                 echo '<input type="text" name="articles_api_url" value="' . esc_attr(get_option('articles_api_url')) . '" />';
-            }, 'custom-api-fetcher', 'articles_api_fetcher_section');
+            }, 'articles-api-fetcher', 'articles_api_fetcher_section');
         });
     }
 
