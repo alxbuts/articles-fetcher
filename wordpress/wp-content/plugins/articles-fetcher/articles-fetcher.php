@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Plugin Name: Articles API Fetcher
  * Description: Fetches articles from an external API and displays it in a user-friendly format.
@@ -10,8 +11,10 @@ if (!defined('ABSPATH')) {
     exit; // Exit if accessed directly.
 }
 
-class ArticlesApiFetcher {
-    public function __construct() {
+class ArticlesApiFetcher
+{
+    public function __construct()
+    {
         add_action('init', [$this, 'create_custom_post_type']);
         add_action('admin_menu', [$this, 'create_options_page']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_styles']);
@@ -27,7 +30,8 @@ class ArticlesApiFetcher {
     }
 
     // Register custom post type to store API data
-    public function create_custom_post_type() {
+    public function create_custom_post_type()
+    {
         register_post_type('api_article', [
             'labels' => [
                 'name' => __('API Articles'),
@@ -40,34 +44,36 @@ class ArticlesApiFetcher {
     }
 
     // Create settings page
-    public function create_options_page() {
+    public function create_options_page()
+    {
         add_options_page(
             'Articles API Fetcher Settings',
             'API Fetcher',
             'manage_options',
-            'articles-fetcher',
+            'articles-api-fetcher',
             [$this, 'render_options_page']
         );
 
         // Register settings for the plugin
-        add_action('admin_init', function() {
+        add_action('admin_init', function () {
             register_setting('articles_api_fetcher_options', 'articles_api_url');
             add_settings_section('articles_api_fetcher_section', 'API Settings', null, 'articles-api-fetcher');
-            add_settings_field('articles_api_url', 'API URL', function() {
+            add_settings_field('articles_api_url', 'API URL', function () {
                 echo '<input type="text" name="articles_api_url" value="' . esc_attr(get_option('articles_api_url')) . '" />';
             }, 'articles-api-fetcher', 'articles_api_fetcher_section');
         });
     }
 
     // Options page HTML
-    public function render_options_page() {
-        ?>
+    public function render_options_page()
+    {
+?>
         <div class="wrap">
             <h1>API Fetcher Settings</h1>
             <form method="post" action="options.php">
                 <?php
                 settings_fields('articles_api_fetcher_options');
-                do_settings_sections('articles-fetcher');
+                do_settings_sections('articles-api-fetcher');
                 submit_button();
                 ?>
             </form>
@@ -76,12 +82,14 @@ class ArticlesApiFetcher {
     }
 
     // Enqueue styles if needed
-    public function enqueue_styles() {
-        wp_enqueue_style('articles-fetcher-style', plugins_url('style.css', __FILE__));
+    public function enqueue_styles()
+    {
+        wp_enqueue_style('articles-api-fetcher-style', plugins_url('style.css', __FILE__));
     }
 
     // Display fetched articles using a shortcode
-    public function display_articles($atts) {
+    public function display_articles($atts)
+    {
         $args = [
             'post_type' => 'api_article',
             'posts_per_page' => 10,
@@ -92,12 +100,12 @@ class ArticlesApiFetcher {
             ob_start();
             while ($query->have_posts()) {
                 $query->the_post();
-                ?>
+        ?>
                 <div class="api-article">
                     <h2><?php the_title(); ?></h2>
                     <div><?php the_content(); ?></div>
                 </div>
-                <?php
+<?php
             }
             echo paginate_links([
                 'total' => $query->max_num_pages,
@@ -109,27 +117,44 @@ class ArticlesApiFetcher {
     }
 
     // Fetch data from API and store in custom post type
-    public function fetch_and_store_articles() {
-      $api_url = get_option('articles_api_url'); // Get API URL from settings
-      $response = wp_remote_get($api_url);
-      
-      if (is_wp_error($response)) {
-          return; // Handle error if needed
-      }
+    public function fetch_and_store_articles()
+    {
+        $api_url = get_option('articles_api_url'); // Get API URL from settings
+        $site_url = get_site_url();
 
-      $articles = json_decode(wp_remote_retrieve_body($response));
+        // Set up the headers for the request, including the User-Agent
+        $args = [
+            'headers' => [
+                'User-Agent' => "ArticlesApiFetcher/1.0 ($site_url)",
+            ],
+        ];
 
-      foreach ($articles as $article) {
-          // Check if article already exists to avoid duplicates
-          if (!post_exists($article->title)) {
-              wp_insert_post([
-                  'post_type' => 'api_article',
-                  'post_title' => sanitize_text_field($article->title),
-                  'post_content' => wp_kses_post($article->content),
-                  'post_status' => 'publish',
-              ]);
-          }
-      }
+        $response = wp_remote_get($api_url, $args);
+
+        if (is_wp_error($response)) {
+            return; // Handle error if needed
+        }
+
+        $response = json_decode(wp_remote_retrieve_body($response));
+
+        error_log(print_r($response, true));
+
+        // Load the file that contains post_exists() if it's not already available
+        if (!function_exists('post_exists')) {
+            require_once(ABSPATH . 'wp-admin/includes/post.php');
+        }
+
+        foreach ($response->articles as $article) {
+            // Check if article already exists to avoid duplicates
+            if (!post_exists($article->title)) {
+                wp_insert_post([
+                    'post_type' => 'api_article',
+                    'post_title' => sanitize_text_field($article->title),
+                    'post_content' => wp_kses_post($article->content),
+                    'post_status' => 'publish',
+                ]);
+            }
+        }
     }
 }
 
