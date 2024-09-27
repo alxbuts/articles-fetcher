@@ -17,8 +17,11 @@ class ArticlesApiFetcher
     {
         add_action('init', [$this, 'create_custom_post_type']);
         add_action('admin_menu', [$this, 'create_options_page']);
-        add_action('wp_enqueue_scripts', [$this, 'enqueue_styles']);
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
         add_shortcode('articles_api_articles', [$this, 'display_articles']);
+
+        add_action('wp_ajax_nopriv_articles_api_fetcher_ajax_pagination', [$this, 'handle_ajax_pagination']);
+        add_action('wp_ajax_articles_api_fetcher_ajax_pagination', [$this, 'handle_ajax_pagination']);
 
         // Schedule the fetch function using WordPress CRON
         add_action('articles_api_fetch_cron', [$this, 'fetch_and_store_articles']);
@@ -51,17 +54,96 @@ class ArticlesApiFetcher
             'API Fetcher',
             'manage_options',
             'articles-api-fetcher',
-            [$this, 'render_options_page']
+            [$this, 'render_settings_page']
         );
 
-        // Register settings for the plugin
-        add_action('admin_init', function () {
-            register_setting('articles_api_fetcher_options', 'articles_api_url');
-            add_settings_section('articles_api_fetcher_section', 'API Settings', null, 'articles-api-fetcher');
-            add_settings_field('articles_api_url', 'API URL', function () {
-                echo '<input type="text" name="articles_api_url" value="' . esc_attr(get_option('articles_api_url')) . '" />';
-            }, 'articles-api-fetcher', 'articles_api_fetcher_section');
-        });
+        register_setting('articles_api_settings_group', 'articles_api_key');
+        register_setting('articles_api_settings_group', 'articles_endpoint');
+        register_setting('articles_api_settings_group', 'articles_search_query_everything');
+        register_setting('articles_api_settings_group', 'articles_search_query_headlines');
+        register_setting('articles_api_settings_group', 'articles_top_headlines_category');
+    }
+
+    public function render_settings_page() {
+        // Get the current option values
+        $api_key = get_option('articles_api_key');
+        $selected_endpoint = get_option('articles_endpoint', 'everything'); // default to 'everything'
+        $search_query_everything = get_option('articles_search_query_everything', '');
+        $search_query_headlines = get_option('articles_search_query_headlines', '');
+        $top_headlines_category = get_option('articles_headlines_category', 'general');
+    
+        ?>
+        <div class="wrap">
+            <h1>API Settings</h1>
+            <form method="post" action="options.php">
+                <?php settings_fields('articles_api_settings_group'); ?>
+                <?php do_settings_sections('articles_api_settings_group'); ?>
+
+                <h2>API Key</h2>
+                <input type="text" name="articles_api_key" value="<? echo esc_attr($api_key); ?>" />
+    
+                <h2>Select Endpoint</h2>
+                <label>
+                    <input type="radio" name="articles_endpoint" value="everything" 
+                    <?php checked($selected_endpoint, 'everything'); ?> 
+                    id="endpoint_everything"> Everything
+                </label>
+                <label>
+                    <input type="radio" name="articles_endpoint" value="top_headlines" 
+                    <?php checked($selected_endpoint, 'top_headlines'); ?> 
+                    id="endpoint_top_headlines"> Top Headlines
+                </label>
+    
+                <div id="everything_settings" style="display: <?php echo ($selected_endpoint === 'everything') ? 'block' : 'none'; ?>;">
+                    <h3>Search Query (for Everything)</h3>
+                    <input type="text" name="articles_search_query_everything" value="<?php echo esc_attr($search_query_everything); ?>" />
+                </div>
+    
+                <div id="top_headlines_settings" style="display: <?php echo ($selected_endpoint === 'top_headlines') ? 'block' : 'none'; ?>;">
+                    <h3>Select Category (for Top Headlines)</h3>
+                    <select name="articles_headlines_category">
+                        <option value="general" <?php selected($top_headlines_category, 'general'); ?>>General</option>
+                        <option value="entertainment" <?php selected($top_headlines_category, 'entertainment'); ?>>Entertainment</option>
+                        <option value="health" <?php selected($top_headlines_category, 'health'); ?>>Health</option>
+                        <option value="science" <?php selected($top_headlines_category, 'science'); ?>>Science</option>
+                        <option value="sports" <?php selected($top_headlines_category, 'sports'); ?>>Sports</option>
+                        <option value="technology" <?php selected($top_headlines_category, 'technology'); ?>>Technology</option>
+                    </select>
+                    <h3>Search Query (for Top Headlines)</h3>
+                    <input type="text" name="articles_search_query_headlines" value="<?php echo esc_attr($search_query_headlines); ?>" />
+                </div>
+    
+                <?php submit_button(); ?>
+            </form>
+        </div>
+    
+        <script type="text/javascript">
+            // JavaScript to toggle the visibility of the search or category settings
+            document.addEventListener('DOMContentLoaded', function () {
+                var apiTypeEverything = document.getElementById('endpoint_everything');
+                var apiTypeTopHeadlines = document.getElementById('endpoint_top_headlines');
+                var everythingSettings = document.getElementById('everything_settings');
+                var topHeadlinesSettings = document.getElementById('top_headlines_settings');
+    
+                // Toggle based on initial selection
+                toggleSettings();
+    
+                // Add event listeners
+                apiTypeEverything.addEventListener('change', toggleSettings);
+                apiTypeTopHeadlines.addEventListener('change', toggleSettings);
+    
+                function toggleSettings() {
+                    if (apiTypeEverything.checked) {
+                        everythingSettings.style.display = 'block';
+                        topHeadlinesSettings.style.display = 'none';
+                    } else if (apiTypeTopHeadlines.checked) {
+                        everythingSettings.style.display = 'none';
+                        topHeadlinesSettings.style.display = 'block';
+                    }
+                }
+            });
+        </script>
+        <?php
     }
 
     // Options page HTML
@@ -81,21 +163,32 @@ class ArticlesApiFetcher
         <?php
     }
 
-    // Enqueue styles if needed
-    public function enqueue_styles()
+    public function enqueue_scripts()
     {
         wp_enqueue_style('articles-api-fetcher-style', plugins_url('style.css', __FILE__));
+        wp_enqueue_script('articles-api-fetcher-ajax-pagination', plugin_dir_url(__FILE__) . 'articles-api-fetcher-ajax-pagination.js', ['jquery'], null, true);
+
+        // Pass the admin-ajax.php URL to the JavaScript
+        wp_localize_script('articles-api-fetcher-ajax-pagination', 'articlesApiFetcherAjax', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
+        ]);
     }
 
     // Display fetched articles using a shortcode
     public function display_articles($atts)
     {
+		$paged = (get_query_var('paged')) ? get_query_var('paged') : 1;
+        $paged = isset($_POST['page']) ? sanitize_text_field($_POST['page']) : 1;
+		
         $args = [
             'post_type' => 'api_article',
-            'posts_per_page' => 10,
-            'paged' => (get_query_var('paged')) ? get_query_var('paged') : 1,
+            'posts_per_page' => get_option('articles_api_pagination_setting'),
+            'paged' => $paged,
         ];
         $query = new WP_Query($args);
+
+        echo '<div id="articles-api-fetcher-container">';
+
         if ($query->have_posts()) {
             ob_start();
             while ($query->have_posts()) {
@@ -109,17 +202,32 @@ class ArticlesApiFetcher
             }
             echo paginate_links([
                 'total' => $query->max_num_pages,
+				'current' => $paged,
             ]);
             return ob_get_clean();
         } else {
             return 'No articles found.';
         }
+
+        echo '</div>';
     }
 
     // Fetch data from API and store in custom post type
     public function fetch_and_store_articles()
     {
-        $api_url = get_option('articles_api_url'); // Get API URL from settings
+        $api_key = get_option('articles_api_key'); // Get API URL from settings
+        $endpoint = get_option('articles_endpoint', 'everything');
+        $search_query_everything = get_option('articles_search_query_everything', '');
+        $search_query_headlines = get_option('articles_search_query_headlines', '');
+        $top_headlines_category = get_option('articles_headlines_category', 'general');
+
+        // Set up the API URL depending on the selected option
+        if ($endpoint === 'everything') {
+            $api_url = "https://newsapi.org/v2/everything?q=" . urlencode($search_query_everything) . "&apiKey=$api_key";
+        } else if ($endpoint === 'top_headlines') {
+            $api_url = "https://newsapi.org/v2/top-headlines?category=" . urlencode($top_headlines_category) . "&q=" . urlencode($search_query_headlines) . "&apiKey=$api_key";
+        }
+
         $site_url = get_site_url();
 
         // Set up the headers for the request, including the User-Agent
@@ -150,6 +258,9 @@ class ArticlesApiFetcher
                 wp_insert_post([
                     'post_type' => 'api_article',
                     'post_title' => sanitize_text_field($article->title),
+                    'post_author' => sanitize_text_field($article->author),
+                    'post_excerpt' => sanitize_text_field($article->description),
+                    'post_date' => sanitize_text_field($article->publishedAt),
                     'post_content' => wp_kses_post($article->content),
                     'post_status' => 'publish',
                 ]);
