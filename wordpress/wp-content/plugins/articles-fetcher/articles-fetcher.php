@@ -18,7 +18,7 @@ class ArticlesApiFetcher
         add_action('init', [$this, 'create_custom_post_type']);
         add_action('admin_menu', [$this, 'create_options_page']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
-        add_shortcode('articles_api_articles', [$this, 'display_articles']);
+        add_shortcode('articles_api_articles', [$this, 'display_articles_shortcode']);
 
         add_action('wp_ajax_nopriv_articles_api_fetcher_ajax_pagination', [$this, 'handle_ajax_pagination']);
         add_action('wp_ajax_articles_api_fetcher_ajax_pagination', [$this, 'handle_ajax_pagination']);
@@ -174,43 +174,67 @@ class ArticlesApiFetcher
         ]);
     }
 
-    // Display fetched articles using a shortcode
-    public function display_articles($atts)
-    {
-		$paged = (get_query_var('paged')) ? get_query_var('paged') : 1;
+    public function handle_ajax_pagination() {
         $paged = isset($_POST['page']) ? sanitize_text_field($_POST['page']) : 1;
-		
+
+        $this->get_articles($paged);
+
+        wp_die();
+    }
+
+    public function display_articles() {
+        $paged = (get_query_var('paged')) ? get_query_var('paged') : 1;
+
+        $this->get_articles($paged);
+    }
+
+    private function get_articles($paged) {
         $args = [
             'post_type' => 'api_article',
             'posts_per_page' => get_option('articles_api_pagination_setting'),
             'paged' => $paged,
         ];
+
         $query = new WP_Query($args);
 
-        echo '<div id="articles-api-fetcher-container">';
-
-        if ($query->have_posts()) {
-            ob_start();
-            while ($query->have_posts()) {
-                $query->the_post();
-        ?>
-                <div class="api-article">
-                    <h2><?php the_title(); ?></h2>
-                    <div><?php the_content(); ?></div>
-                </div>
-<?php
-            }
-            echo paginate_links([
-                'total' => $query->max_num_pages,
-				'current' => $paged,
-            ]);
-            return ob_get_clean();
-        } else {
-            return 'No articles found.';
+        // Open a container to replace with AJAX content
+        if ( ! wp_doing_ajax() ) {
+            echo '<div id="articles-api-fetcher-container">';
         }
 
-        echo '</div>';
+        if ($query->have_posts()) :
+            while ($query->have_posts()) : $query->the_post();
+                echo '<div class="article">';
+                the_title('<h2>', '</h2>');
+                the_content();
+                echo '</div>';
+            endwhile;
+
+            // Output pagination links
+            echo paginate_links([
+                'total'        => $query->max_num_pages,
+                'current'      => $paged,
+            ]);
+
+        else :
+            echo '<p>No articles found.</p>';
+        endif;
+
+        // Close the container
+        if ( ! wp_doing_ajax() ) {
+            echo '</div>';
+        }
+
+        wp_reset_postdata();
     }
+
+
+    public function display_articles_shortcode() {
+        ob_start();
+        $this->display_articles();
+        return ob_get_clean();
+    }
+
 
     // Fetch data from API and store in custom post type
     public function fetch_and_store_articles()

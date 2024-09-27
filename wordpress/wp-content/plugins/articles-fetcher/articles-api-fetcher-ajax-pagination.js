@@ -1,6 +1,6 @@
 jQuery(document).ready(function($) {
     // Capture pagination link clicks
-    $(document).on('click', '.page-numbers a', function(e) {
+    $(document).on('click', '.page-numbers', function(e) {
         e.preventDefault(); // Prevent default behavior
 
         var page = $(this).attr('href').split('page/')[1]; // Extract page number from URL
@@ -13,7 +13,7 @@ jQuery(document).ready(function($) {
         $('#articles-api-fetcher-container').html('<p>Loading...</p>');
 
         // Send the AJAX request
-        $.post(customPluginAjax.ajaxurl, data, function(response) {
+        $.post(articlesApiFetcherAjax.ajaxurl, data, function(response) {
             // Replace content with the new posts
             $('#articles-api-fetcher-container').html(response);
         });
